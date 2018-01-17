@@ -69,6 +69,7 @@ protected Q_SLOTS:
   void updateFrame();
   void updateDrawUnder();
   void updateObjectURI();
+   void updateProxyURI();
   void updateZoom();
   void updateBlocks();
   void updateFrameConvention();
@@ -78,6 +79,7 @@ protected Q_SLOTS:
   void receivedImage(QNetworkRequest request);
   void finishedLoading();
   void errorOcurred(QString description);
+  void warnOcurred(QString description);
 
 protected:
   // overrides from Display
@@ -117,6 +119,7 @@ protected:
   TfFrameProperty *frame_property_;
   Property *dynamic_reload_property_;
   StringProperty *object_uri_property_;
+  StringProperty *proxy_uri_property_;
   IntProperty *zoom_property_;
   IntProperty *blocks_property_;
   FloatProperty *resolution_property_;
@@ -127,6 +130,7 @@ protected:
   float alpha_;
   bool draw_under_;
   std::string object_uri_;
+  std::string proxy_uri_;
   int zoom_;
   int blocks_;
 

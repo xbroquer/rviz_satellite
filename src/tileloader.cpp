@@ -48,10 +48,10 @@ void TileLoader::MapTile::abortLoading() {
 bool TileLoader::MapTile::hasImage() const { return !image_.isNull(); }
 
 TileLoader::TileLoader(const std::string &service, double latitude,
-                       double longitude, unsigned int zoom, unsigned int blocks,
+                       double longitude, unsigned int zoom, unsigned int blocks, const std::string &proxy,
                        QObject *parent)
     : QObject(parent), latitude_(latitude), longitude_(longitude), zoom_(zoom),
-      blocks_(blocks), object_uri_(service) {
+      blocks_(blocks),  object_uri_(service), proxy_(proxy) {
   assert(blocks_ >= 0);
 
   const std::string package_path = ros::package::getPath("rviz_satellite");
@@ -69,6 +69,21 @@ TileLoader::TileLoader(const std::string &service, double latitude,
   if (!dir.exists() && !dir.mkpath(".")) {
     throw std::runtime_error("Failed to create cache folder: " +
                              cache_path_.toStdString());
+  }
+
+  // Override proxy if specified
+  QString proxy_uri = QString::fromStdString(proxy_);
+  QStringList kStr = proxy_uri.split(':');
+
+  if(kStr.size() == 2) {
+    _localhostProxy = QNetworkProxy(QNetworkProxy::HttpProxy, kStr[0], kStr[1].toUInt());
+
+    QString hostname = _localhostProxy.hostName();
+    QString port =  QString::number(_localhostProxy.port());
+    ROS_INFO("Proxy initialized to %s:%s",hostname.toStdString().c_str(), port.toStdString().c_str());
+
+  } else {
+    _localhostProxy = QNetworkProxy(QNetworkProxy::HttpProxy, QString(), 0);
   }
 
   /// @todo: some kind of error checking of the URL
@@ -98,7 +113,16 @@ void TileLoader::start() {
   qnam_.reset( new QNetworkAccessManager(this) );
   QObject::connect(qnam_.get(), SIGNAL(finished(QNetworkReply *)), this,
                    SLOT(finishedRequest(QNetworkReply *)));
-  qnam_->proxyFactory()->setUseSystemConfiguration ( true );
+
+
+  if(!_localhostProxy.hostName().isEmpty()) {
+    qnam_->proxyFactory()->setUseSystemConfiguration ( false );
+    qnam_->setProxy(_localhostProxy);
+    QString str = QString("HTTP Proxy updated to ") + _localhostProxy.hostName() + QString::number(_localhostProxy.port());
+    ROS_INFO(str.toStdString().c_str());
+  } else {
+    qnam_->proxyFactory()->setUseSystemConfiguration ( true );
+  }
 
   //  determine what range of tiles we can load
   const int min_x = std::max(0, center_tile_x_ - blocks_);
@@ -169,37 +193,71 @@ double TileLoader::zoomToResolution(double lat, unsigned int zoom) {
 void TileLoader::finishedRequest(QNetworkReply *reply) {
   const QNetworkRequest request = reply->request();
 
-  //  find corresponding tile
-  const std::vector<MapTile>::iterator it =
-      std::find_if(tiles_.begin(), tiles_.end(),
-                   [&](const MapTile &tile) { return tile.reply() == reply; });
-  if (it == tiles_.end()) {
-    //  removed from list already, ignore this reply
-    return;
-  }
-  MapTile &tile = *it;
 
-  if (reply->error() == QNetworkReply::NoError) {
-    //  decode an image
-    QImageReader reader(reply);
-    if (reader.canRead()) {
-      QImage image = reader.read();
-      tile.setImage(image);
-      image.save(cachedPathForTile(tile.x(), tile.y(), tile.z()), "JPEG");
-      emit receivedImage(request);
-    } else {
-      //  probably not an image
-      QString err;
-      err = "Unable to decode image at " + request.url().toString();
-      emit errorOcurred(err);
+  QVariant possibleRedirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
+
+   /* We'll deduct if the redirection is valid in the redirectUrl function */
+   _urlRedirectedTo = this->redirectUrl(possibleRedirectUrl.toUrl(),
+                                        _urlRedirectedTo);
+
+   /* If the URL is not empty, we're being redirected. */
+   if(!_urlRedirectedTo.isEmpty()) {
+       QString text = QString("QNAMRedirect::replyFinished: Redirected to ")
+                             .append(_urlRedirectedTo.toString());
+       emit warnOcurred(text);
+       /* We'll do another request to the redirection url. */
+       qnam_->get(QNetworkRequest(_urlRedirectedTo));
+   } else {
+      //  find corresponding tile
+      const std::vector<MapTile>::iterator it =
+          std::find_if(tiles_.begin(), tiles_.end(),
+                       [&](const MapTile &tile) { return tile.reply() == reply; });
+      if (it == tiles_.end()) {
+        //  removed from list already, ignore this reply
+        return;
+      }
+      MapTile &tile = *it;
+
+      if (reply->error() == QNetworkReply::NoError) {
+        //  decode an image
+        QImageReader reader(reply);
+        if (reader.canRead()) {
+          QImage image = reader.read();
+          tile.setImage(image);
+          image.save(cachedPathForTile(tile.x(), tile.y(), tile.z()), "JPEG");
+          emit receivedImage(request);
+        } else {
+          //  probably not an image
+          QString err;
+          err = "Unable to decode image at " + request.url().toString();
+          emit errorOcurred(err);
+        }
+      } else {
+        const QString err = "Failed loading " + request.url().toString() +
+                            " with code " + QString::number(reply->error());
+        emit errorOcurred(err);
+      }
+      checkIfLoadingComplete();
+   }
+   /* Clean up. */
+   reply->deleteLater();
+}
+
+
+QUrl TileLoader::redirectUrl(const QUrl& possibleRedirectUrl,
+                               const QUrl& oldRedirectUrl) const {
+    QUrl redirectUrl;
+    /*
+     * Check if the URL is empty and
+     * that we aren't being fooled into a infinite redirect loop.
+     * We could also keep track of how many redirects we have been to
+     * and set a limit to it, but we'll leave that to you.
+     */
+    if(!possibleRedirectUrl.isEmpty() &&
+       possibleRedirectUrl != oldRedirectUrl) {
+        redirectUrl = possibleRedirectUrl;
     }
-  } else {
-    const QString err = "Failed loading " + request.url().toString() +
-                        " with code " + QString::number(reply->error());
-    emit errorOcurred(err);
-  }
-
-  checkIfLoadingComplete();
+    return redirectUrl;
 }
 
 bool TileLoader::checkIfLoadingComplete() {

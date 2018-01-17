@@ -42,7 +42,7 @@
 #define FRAME_CONVENTION_XYZ_NWU (2)  //  X -> North, Y -> West
 
 // Max number of adjacent blocks to support.
-static constexpr int kMaxBlocks = 8;
+static constexpr int kMaxBlocks = 16;
 // Max zoom level to support.
 static constexpr int kMaxZoom = 22;
 
@@ -116,6 +116,12 @@ AerialMapDisplay::AerialMapDisplay()
   resolution_property_->setReadOnly(true);
 
   //  properties for map
+  proxy_uri_property_ = new StringProperty(
+        "HTTP Proxy", QString(),
+        "HTTP Proxy URI with port <hostname>:<port>", this, SLOT(updateProxyURI()));
+  proxy_uri_property_->setShouldBeSaved(true);
+  proxy_uri_ = proxy_uri_property_->getStdString();
+
   object_uri_property_ = new StringProperty(
       "Object URI", "http://otile1.mqcdn.com/tiles/1.0.0/sat/{z}/{x}/{y}.jpg",
       "URL from which to retrieve map tiles.", this, SLOT(updateObjectURI()));
@@ -218,6 +224,12 @@ void AerialMapDisplay::updateDrawUnder() {
   ROS_INFO("Changing draw_under to %s", ((draw_under_) ? "true" : "false"));
 }
 
+
+void AerialMapDisplay::updateProxyURI() {
+  proxy_uri_ = proxy_uri_property_->getStdString();
+  loadImagery(); //  reload all imagery
+}
+
 void AerialMapDisplay::updateObjectURI() {
   object_uri_ = object_uri_property_->getStdString();
   loadImagery(); //  reload all imagery
@@ -317,7 +329,7 @@ void AerialMapDisplay::loadImagery() {
 
   try {
     loader_.reset(new TileLoader(object_uri_, ref_fix_.latitude,
-                                 ref_fix_.longitude, zoom_, blocks_, this));
+                                 ref_fix_.longitude, zoom_, blocks_, proxy_uri_, this));
   } catch (std::exception &e) {
     setStatus(StatusProperty::Error, "Message", QString(e.what()));
     return;
@@ -325,6 +337,8 @@ void AerialMapDisplay::loadImagery() {
 
   QObject::connect(loader_.get(), SIGNAL(errorOcurred(QString)), this,
                    SLOT(errorOcurred(QString)));
+  QObject::connect(loader_.get(), SIGNAL(warnOcurred(QString)), this,
+                   SLOT(warnOcurred(QString)));
   QObject::connect(loader_.get(), SIGNAL(finishedLoading()), this,
                    SLOT(finishedLoading()));
   QObject::connect(loader_.get(), SIGNAL(initiatedRequest(QNetworkRequest)), this,
@@ -492,6 +506,11 @@ void AerialMapDisplay::finishedLoading() {
 void AerialMapDisplay::errorOcurred(QString description) {
   ROS_ERROR("Error: %s", qPrintable(description));
   setStatus(StatusProperty::Error, "Message", description);
+}
+
+void AerialMapDisplay::warnOcurred(QString description) {
+  ROS_ERROR("Warning: %s", qPrintable(description));
+  setStatus(StatusProperty::Warn, "Message", description);
 }
 
 // TODO(gareth): We are technically ignoring the orientation from the

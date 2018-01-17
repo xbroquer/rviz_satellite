@@ -14,8 +14,10 @@
 #include <QObject>
 #include <QImage>
 #include <QNetworkAccessManager>
+#include <QNetworkProxy>
 #include <QString>
 #include <QNetworkReply>
+#include <QUrl>
 #include <vector>
 #include <memory>
 
@@ -61,7 +63,7 @@ public:
   };
 
   explicit TileLoader(const std::string &service, double latitude,
-                      double longitude, unsigned int zoom, unsigned int blocks,
+                      double longitude, unsigned int zoom, unsigned int blocks, const std::string &proxy,
                       QObject *parent = nullptr);
 
   /// Start loading tiles asynchronously.
@@ -111,11 +113,16 @@ signals:
 
   void errorOcurred(QString description);
 
+  void warnOcurred(QString description);
+
 public slots:
 
 private slots:
 
   void finishedRequest(QNetworkReply *reply);
+
+  QUrl redirectUrl(const QUrl& possibleRedirectUrl,
+                                 const QUrl& oldRedirectUrl) const;
 
 private:
 
@@ -147,8 +154,13 @@ private:
   QString cache_path_;
 
   std::string object_uri_;
+  std::string proxy_;
 
   std::vector<MapTile> tiles_;
+
+  QUrl _urlRedirectedTo;
+
+  QNetworkProxy _localhostProxy;
 };
 
 #endif // TILELOADER_H
