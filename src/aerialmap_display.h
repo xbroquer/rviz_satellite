@@ -69,10 +69,12 @@ protected Q_SLOTS:
   void updateFrame();
   void updateDrawUnder();
   void updateObjectURI();
-   void updateProxyURI();
+  void updateProxyURI();
   void updateZoom();
   void updateBlocks();
   void updateFrameConvention();
+  void updateCacheFolder();
+  void updateOfflineMode();
 
   //  slots for TileLoader messages
   void initiatedRequest(QNetworkRequest request);
@@ -117,6 +119,8 @@ protected:
   //  properties
   RosTopicProperty *topic_property_;
   TfFrameProperty *frame_property_;
+  Property *offline_mode_property_ ;
+  StringProperty *cache_path_property_;
   Property *dynamic_reload_property_;
   StringProperty *object_uri_property_;
   StringProperty *proxy_uri_property_;
@@ -127,6 +131,8 @@ protected:
   Property *draw_under_property_;
   EnumProperty * frame_convention_property_;
 
+  std::string cache_path_;
+  bool offline_mode_;
   float alpha_;
   bool draw_under_;
   std::string object_uri_;

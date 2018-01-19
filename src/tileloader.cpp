@@ -24,6 +24,7 @@
 #include <ros/package.h>
 #include <functional> // for std::hash
 
+
 static size_t replaceRegex(const boost::regex &ex, std::string &str,
                            const std::string &replace) {
   std::string::const_iterator start = str.begin(), end = str.end();
@@ -48,21 +49,18 @@ void TileLoader::MapTile::abortLoading() {
 bool TileLoader::MapTile::hasImage() const { return !image_.isNull(); }
 
 TileLoader::TileLoader(const std::string &service, double latitude,
-                       double longitude, unsigned int zoom, unsigned int blocks, const std::string &proxy,
+                       double longitude, unsigned int zoom, unsigned int blocks,
+                       const std::string &proxy,  const std::string &cache_base_path,
+                       bool offline_mode,
                        QObject *parent)
     : QObject(parent), latitude_(latitude), longitude_(longitude), zoom_(zoom),
-      blocks_(blocks),  object_uri_(service), proxy_(proxy) {
+      blocks_(blocks),  object_uri_(service), proxy_(proxy),
+      cache_path_(),  offline_mode_(offline_mode) {
   assert(blocks_ >= 0);
-
-  const std::string package_path = ros::package::getPath("rviz_satellite");
-  if (package_path.empty()) {
-    throw std::runtime_error("package 'rviz_satellite' not found");
-  }
 
   std::hash<std::string> hash_fn;
   cache_path_ =
-      QDir::cleanPath(QString::fromStdString(package_path) + QDir::separator() +
-                      QString("mapscache") + QDir::separator() +
+      QDir::cleanPath(QString::fromStdString(cache_base_path) + QDir::separator() +
                       QString::number(hash_fn(object_uri_)));
 
   QDir dir(cache_path_);
@@ -70,6 +68,8 @@ TileLoader::TileLoader(const std::string &service, double latitude,
     throw std::runtime_error("Failed to create cache folder: " +
                              cache_path_.toStdString());
   }
+
+
 
   // Override proxy if specified
   QString proxy_uri = QString::fromStdString(proxy_);
@@ -142,14 +142,17 @@ void TileLoader::start() {
         QImage image(full_path);
         tiles_.push_back(MapTile(x, y, zoom_, image));
       } else {
-        const QUrl uri = uriForTile(x, y);
-        //  send request
-        QNetworkRequest request = QNetworkRequest(uri);
-        auto const userAgent = QByteArray("rviz_satellite/0.0.2 (+https://github.com/gareth-cross/rviz_satellite)");
-        request.setRawHeader(QByteArray("User-Agent"), userAgent);
-        QNetworkReply *rep = qnam_->get(request);
-        emit initiatedRequest(request);
-        tiles_.push_back(MapTile(x, y, zoom_, rep));
+
+        if(!offline_mode_) {
+          const QUrl uri = uriForTile(x, y);
+          //  send request
+          QNetworkRequest request = QNetworkRequest(uri);
+          auto const userAgent = QByteArray("rviz_satellite/0.0.2 (+https://github.com/gareth-cross/rviz_satellite)");
+          request.setRawHeader(QByteArray("User-Agent"), userAgent);
+          QNetworkReply *rep = qnam_->get(request);
+          emit initiatedRequest(request);
+          tiles_.push_back(MapTile(x, y, zoom_, rep));
+        }
       }
     }
   }

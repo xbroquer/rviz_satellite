@@ -63,7 +63,9 @@ public:
   };
 
   explicit TileLoader(const std::string &service, double latitude,
-                      double longitude, unsigned int zoom, unsigned int blocks, const std::string &proxy,
+                      double longitude, unsigned int zoom, unsigned int blocks,
+                      const std::string &proxy, const std::string &cache_path,
+                      bool offline_mode,
                       QObject *parent = nullptr);
 
   /// Start loading tiles asynchronously.
@@ -151,10 +153,12 @@ private:
   double origin_offset_y_;
 
   std::shared_ptr<QNetworkAccessManager> qnam_;
-  QString cache_path_;
+
 
   std::string object_uri_;
   std::string proxy_;
+  QString cache_path_;
+  bool offline_mode_;
 
   std::vector<MapTile> tiles_;
 

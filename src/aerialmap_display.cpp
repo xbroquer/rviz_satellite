@@ -10,8 +10,10 @@
 
 #include <QtGlobal>
 #include <QImage>
+#include <QDir>
 
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <tf/transform_listener.h>
 
 #include <OGRE/OgreManualObject.h>
@@ -40,6 +42,7 @@
 #define FRAME_CONVENTION_XYZ_ENU (0)  //  X -> East, Y -> North
 #define FRAME_CONVENTION_XYZ_NED (1)  //  X -> North, Y -> East
 #define FRAME_CONVENTION_XYZ_NWU (2)  //  X -> North, Y -> West
+
 
 // Max number of adjacent blocks to support.
 static constexpr int kMaxBlocks = 16;
@@ -80,6 +83,26 @@ AerialMapDisplay::AerialMapDisplay()
   static unsigned int map_ids = 0;
   map_id_ = map_ids++; //  global counter of map ids
 
+
+  const std::string package_path = ros::package::getPath("rviz_satellite");
+  if (package_path.empty()) {
+    throw std::runtime_error("package 'rviz_satellite' not found");
+  }
+
+  QString default_cache_path =
+      QDir::cleanPath(QString::fromStdString(package_path) + QDir::separator() +
+                      QString("mapscache"));
+
+  std::string rviz_satellite_cache_rosparam;
+  bool rviz_satellite_offine_mode_rosparam = false;
+  bool rviz_satellite_cache_rosparam_available = false;
+  rviz_satellite_cache_rosparam_available = update_nh_.param<std::string>("rviz_satellite_cache_path",
+                                                                          rviz_satellite_cache_rosparam,
+                                                                          default_cache_path.toStdString());
+
+  update_nh_.param<bool>("rviz_satellite_offine_mode", rviz_satellite_offine_mode_rosparam,
+                                false);
+
   topic_property_ = new RosTopicProperty(
       "Topic", "", QString::fromStdString(
                        ros::message_traits::datatype<sensor_msgs::NavSatFix>()),
@@ -88,6 +111,20 @@ AerialMapDisplay::AerialMapDisplay()
   frame_property_ = new TfFrameProperty("Robot frame", "world",
                                         "TF frame for the moving robot.", this,
                                         nullptr, false, SLOT(updateFrame()), this);
+
+  cache_path_property_  = new StringProperty(
+        "Map folder", QString::fromStdString(rviz_satellite_cache_rosparam),
+        "Folder for tile cache", this, SLOT(updateCacheFolder()));
+  cache_path_property_->setShouldBeSaved(false);
+  cache_path_property_->setReadOnly(true);
+  cache_path_ = cache_path_property_->getStdString();
+  cache_path_property_->setHidden(!rviz_satellite_cache_rosparam_available);
+
+  offline_mode_property_ = new Property("Offline mode", rviz_satellite_offine_mode_rosparam,
+                                     "When enabled, there is no tile server request",
+                                      this, SLOT(updateOfflineMode()));
+  offline_mode_property_->setShouldBeSaved(true);
+  offline_mode_ = offline_mode_property_->getValue().toBool();
 
   dynamic_reload_property_ =
       new Property("Dynamically reload", true,
@@ -200,6 +237,22 @@ void AerialMapDisplay::subscribe() {
 void AerialMapDisplay::unsubscribe() {
   coord_sub_.shutdown();
   ROS_INFO("Unsubscribing.");
+}
+
+void AerialMapDisplay::updateCacheFolder() {
+  cache_path_ = cache_path_property_->getStdString();
+  ROS_INFO("Changing cache folder to %s", cache_path_.c_str());
+  loadImagery(); //  reload all imagery
+}
+
+void AerialMapDisplay::updateOfflineMode() {
+  offline_mode_ = offline_mode_property_->getValue().toBool();
+  if(offline_mode_ == true) {
+    ROS_INFO("Rviz satellite plugin is now working in OFFLINE mode");
+  } else {
+    ROS_INFO("Rviz satellite plugin is now working in ONLINE mode");
+  }
+  loadImagery(); //  reload all imagery
 }
 
 void AerialMapDisplay::updateDynamicReload() {
@@ -329,7 +382,7 @@ void AerialMapDisplay::loadImagery() {
 
   try {
     loader_.reset(new TileLoader(object_uri_, ref_fix_.latitude,
-                                 ref_fix_.longitude, zoom_, blocks_, proxy_uri_, this));
+                                 ref_fix_.longitude, zoom_, blocks_, proxy_uri_, cache_path_, offline_mode_, this));
   } catch (std::exception &e) {
     setStatus(StatusProperty::Error, "Message", QString(e.what()));
     return;
