@@ -80,7 +80,7 @@ TileLoader::TileLoader(const std::string &service, double latitude,
 
     QString hostname = _localhostProxy.hostName();
     QString port =  QString::number(_localhostProxy.port());
-    ROS_INFO("Proxy initialized to %s:%s",hostname.toStdString().c_str(), port.toStdString().c_str());
+    ROS_DEBUG("Proxy initialized to %s:%s",hostname.toStdString().c_str(), port.toStdString().c_str());
 
   } else {
     _localhostProxy = QNetworkProxy(QNetworkProxy::HttpProxy, QString(), 0);
@@ -108,7 +108,7 @@ void TileLoader::start() {
   //  discard previous set of tiles and all pending requests
   abort();
 
-  ROS_INFO("loading %d blocks around tile=(%d,%d)", blocks_, center_tile_x_, center_tile_y_ );
+  ROS_DEBUG("loading %d blocks around tile=(%d,%d)", blocks_, center_tile_x_, center_tile_y_ );
 
   qnam_.reset( new QNetworkAccessManager(this) );
   QObject::connect(qnam_.get(), SIGNAL(finished(QNetworkReply *)), this,
@@ -118,8 +118,11 @@ void TileLoader::start() {
   if(!_localhostProxy.hostName().isEmpty()) {
     qnam_->proxyFactory()->setUseSystemConfiguration ( false );
     qnam_->setProxy(_localhostProxy);
-    QString str = QString("HTTP Proxy updated to ") + _localhostProxy.hostName() + QString::number(_localhostProxy.port());
-    ROS_INFO(str.toStdString().c_str());
+
+    QString hostname = _localhostProxy.hostName();
+    QString port =  QString::number(_localhostProxy.port());
+    ROS_DEBUG("Proxy updated to %s:%s",hostname.toStdString().c_str(), port.toStdString().c_str());
+
   } else {
     qnam_->proxyFactory()->setUseSystemConfiguration ( true );
   }
